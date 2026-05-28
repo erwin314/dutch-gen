@@ -17,6 +17,8 @@ Options:
   -b, --bytes <exact|min-max>   Generate text with exact bytes or range of bytes (e.g., 1000 or 500-1500)
   -i, --infinite                Generate text infinitely (streaming mode)
   -s, --seed <u64>              Specify seed for reproducible output
+  -p, --pdf                     Generate output in PDF format
+  -o, --output <file>           Write output to a file instead of stdout
   -h, --help                    Print this help menu
 ```
 
@@ -30,6 +32,12 @@ Options:
 
 # Stream text infinitely, piping it to target utilities
 ./dutch-gen -i | head -n 100
+
+# Generate 500 words as a formatted PDF file
+./dutch-gen -w 500 -p -o output.pdf
+
+# Generate 1000 bytes of text directly to a text file
+./dutch-gen -b 1000 -o output.txt
 ```
 
 ## Data Citation & License
