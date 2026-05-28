@@ -1,6 +1,6 @@
 # Dutch Random Text Generator
 
-A lightweight, self-contained Rust CLI application to generate pseudo-Dutch text that is statistically representative of real Dutch word frequencies, but does not make grammatical sense. Perfect for generating search engine indexing test datasets.
+A lightweight, self-contained CLI application to generate pseudo-Dutch text that is statistically representative of real Dutch word frequencies, but does not make grammatical sense. Perfect for generating search engine indexing test datasets.
 
 ## Performance
 - **Binary Size**: 2.5 MB (fully self-contained, no external database files needed at runtime).
