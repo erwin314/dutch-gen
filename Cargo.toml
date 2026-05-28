@@ -1,6 +1,6 @@
 [package]
 name = "dutch-gen"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 
 [dependencies]
@@ -17,4 +17,3 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = true
-
