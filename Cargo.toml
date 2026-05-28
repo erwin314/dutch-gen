@@ -10,3 +10,11 @@ rand_chacha = "0.10.0"
 
 [lints.clippy]
 pedantic = "forbid"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+

@@ -3,9 +3,10 @@
 A lightweight, self-contained CLI application to generate pseudo-Dutch text that is statistically representative of real Dutch word frequencies, but does not make grammatical sense. Perfect for generating search engine indexing test datasets.
 
 ## Performance
-- **Binary Size**: 2.5 MB (fully self-contained, no external database files needed at runtime).
-- **Generation Speed**: ~35 MB/s throughput (1 million words in 0.14s).
-- **Startup Latency**: < 15ms.
+- **Binary Size**: ~2.4 MB (fully self-contained, no external database files needed at runtime).
+- **Generation Speed**: ~100 MB/s throughput (1 million words in ~0.07s).
+- **Startup Latency**: ~25ms (includes process startup and decompressing the embedded database assets).
+
 
 ## Usage
 ```bash
