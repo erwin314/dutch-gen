@@ -191,16 +191,14 @@ fn main() {
         let text_res = if let Some(bytes_range) = cli_args.bytes {
             let mut buf = Vec::new();
             let target_bytes = bytes_range.resolve(&mut rng);
-            generate_by_bytes(target_bytes, &mut rng, &words, &cdf, sum, &mut buf)
-                .map(|()| buf)
+            generate_by_bytes(target_bytes, &mut rng, &words, &cdf, sum, &mut buf).map(|()| buf)
         } else {
             let mut buf = Vec::new();
             let target_words = cli_args
                 .words
                 .unwrap_or(RangeOrExact::Exact(100))
                 .resolve(&mut rng);
-            generate_by_words(target_words, &mut rng, &words, &cdf, sum, &mut buf)
-                .map(|()| buf)
+            generate_by_words(target_words, &mut rng, &words, &cdf, sum, &mut buf).map(|()| buf)
         };
 
         match text_res {

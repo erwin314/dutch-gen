@@ -1,8 +1,8 @@
 use flate2::read::GzDecoder;
 use rand::RngExt;
 use rand_chacha::ChaCha8Rng;
-use std::io::{Read, Write};
 use std::fmt::Write as _;
+use std::io::{Read, Write};
 
 #[derive(Clone, Copy, Debug)]
 pub enum RangeOrExact {
@@ -496,7 +496,8 @@ pub fn generate_pdf(text: &str) -> Vec<u8> {
         }
         stream_content.extend_from_slice(b"ET\n");
 
-        let mut content_obj = format!("<< /Length {} >>\nstream\n", stream_content.len()).into_bytes();
+        let mut content_obj =
+            format!("<< /Length {} >>\nstream\n", stream_content.len()).into_bytes();
         content_obj.extend_from_slice(&stream_content);
         content_obj.extend_from_slice(b"\nendstream");
         pdf.write_object(content_obj_id, &content_obj);
@@ -607,10 +608,7 @@ mod tests {
 
         let xref_index = pdf_str.find("xref\n").unwrap();
         let trailer_index = pdf_str.find("trailer\n").unwrap();
-        let xref_lines: Vec<&str> = pdf_str[xref_index..trailer_index]
-            .lines()
-            .skip(2)
-            .collect();
+        let xref_lines: Vec<&str> = pdf_str[xref_index..trailer_index].lines().skip(2).collect();
 
         for line in xref_lines {
             assert_eq!(line.len(), 19);
