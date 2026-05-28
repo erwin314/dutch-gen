@@ -7,3 +7,6 @@ edition = "2024"
 flate2 = "1.0"
 rand = "0.8"
 rand_chacha = "0.3"
+
+[lints.clippy]
+pedantic = "forbid"
