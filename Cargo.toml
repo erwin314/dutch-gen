@@ -5,8 +5,8 @@ edition = "2024"
 
 [dependencies]
 flate2 = "1.0"
-rand = "0.8"
-rand_chacha = "0.3"
+rand = "0.10.1"
+rand_chacha = "0.10.0"
 
 [lints.clippy]
 pedantic = "forbid"

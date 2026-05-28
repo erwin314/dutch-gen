@@ -1,5 +1,5 @@
 use flate2::read::GzDecoder;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use std::io::{Read, Write};
 
@@ -36,7 +36,7 @@ impl RangeOrExact {
     fn resolve(self, rng: &mut ChaCha8Rng) -> usize {
         match self {
             RangeOrExact::Exact(val) => val,
-            RangeOrExact::Range(min, max) => rng.gen_range(min..=max),
+            RangeOrExact::Range(min, max) => rng.random_range(min..=max),
         }
     }
 }
@@ -147,7 +147,7 @@ fn parse_args() -> CliArgs {
 }
 
 fn sample_word<'a>(rng: &mut ChaCha8Rng, words: &[&'a str], cdf: &[u64], sum: u64) -> &'a str {
-    let r = rng.gen_range(1..=sum);
+    let r = rng.random_range(1..=sum);
     let idx = cdf.binary_search(&r).unwrap_or_else(|i| i);
     words[idx]
 }
@@ -165,7 +165,7 @@ fn generate_by_bytes(
     let mut first_paragraph = true;
 
     while bytes_generated < target_bytes {
-        let paragraph_sentences_count = rng.gen_range(3..=8);
+        let paragraph_sentences_count = rng.random_range(3..=8);
         let mut sentences = Vec::new();
 
         for _ in 0..paragraph_sentences_count {
@@ -173,7 +173,7 @@ fn generate_by_bytes(
                 break;
             }
 
-            let sentence_len = rng.gen_range(5..=20);
+            let sentence_len = rng.random_range(5..=20);
             let mut sentence_words = Vec::with_capacity(sentence_len);
             for i in 0..sentence_len {
                 let mut word = sample_word(rng, words, cdf, sum).to_string();
@@ -187,7 +187,7 @@ fn generate_by_bytes(
                 sentence_words.push(word);
             }
 
-            let p = rng.gen_range(0..100);
+            let p = rng.random_range(0..100);
             let punct = if p < 85 {
                 "."
             } else if p < 95 {
@@ -245,7 +245,7 @@ fn generate_by_words(
     let mut first_paragraph = true;
 
     while words_generated < target_words {
-        let paragraph_sentences_count = rng.gen_range(3..=8);
+        let paragraph_sentences_count = rng.random_range(3..=8);
         let mut sentences = Vec::new();
 
         for _ in 0..paragraph_sentences_count {
@@ -257,7 +257,7 @@ fn generate_by_words(
             let sentence_len = if remaining <= 5 {
                 remaining
             } else {
-                rng.gen_range(5..=20).min(remaining)
+                rng.random_range(5..=20).min(remaining)
             };
 
             let mut sentence_words = Vec::with_capacity(sentence_len);
@@ -275,7 +275,7 @@ fn generate_by_words(
 
             words_generated += sentence_len;
 
-            let p = rng.gen_range(0..100);
+            let p = rng.random_range(0..100);
             let punct = if p < 85 {
                 "."
             } else if p < 95 {
@@ -309,7 +309,7 @@ fn main() {
     // 2. Initialize Seedable RNG
     let mut rng = match cli_args.seed {
         Some(s) => ChaCha8Rng::seed_from_u64(s),
-        None => ChaCha8Rng::from_entropy(),
+        None => ChaCha8Rng::from_rng(&mut rand::rng()),
     };
 
     // 3. Decompress and parse embedded assets
