@@ -2,6 +2,7 @@ use flate2::read::GzDecoder;
 use rand::RngExt;
 use rand_chacha::ChaCha8Rng;
 use std::io::{Read, Write};
+use std::fmt::Write as _;
 
 #[derive(Clone, Copy, Debug)]
 pub enum RangeOrExact {
@@ -304,6 +305,212 @@ pub fn generate_infinite(
     }
 }
 
+struct PdfWriter {
+    buf: Vec<u8>,
+    offsets: Vec<usize>,
+}
+
+impl PdfWriter {
+    fn new() -> Self {
+        let mut writer = PdfWriter {
+            buf: Vec::new(),
+            offsets: Vec::new(),
+        };
+        writer.buf.extend_from_slice(b"%PDF-1.4\n");
+        writer
+    }
+
+    fn write_object(&mut self, id: usize, content: &[u8]) {
+        while self.offsets.len() <= id {
+            self.offsets.push(0);
+        }
+        self.offsets[id] = self.buf.len();
+        let header = format!("{id} 0 obj\n");
+        self.buf.extend_from_slice(header.as_bytes());
+        self.buf.extend_from_slice(content);
+        self.buf.extend_from_slice(b"\nendobj\n");
+    }
+
+    fn finish(mut self) -> Vec<u8> {
+        let xref_start = self.buf.len();
+        self.buf.extend_from_slice(b"xref\n");
+        let xref_header = format!("0 {}\n", self.offsets.len());
+        self.buf.extend_from_slice(xref_header.as_bytes());
+        self.buf.extend_from_slice(b"0000000000 65535 f \n");
+        for &offset in &self.offsets[1..] {
+            let entry = format!("{offset:010} 00000 n \n");
+            self.buf.extend_from_slice(entry.as_bytes());
+        }
+        self.buf.extend_from_slice(b"trailer\n");
+        let trailer_dict = format!("<< /Size {} /Root 1 0 R >>\n", self.offsets.len());
+        self.buf.extend_from_slice(trailer_dict.as_bytes());
+        self.buf.extend_from_slice(b"startxref\n");
+        let startxref = format!("{xref_start}\n");
+        self.buf.extend_from_slice(startxref.as_bytes());
+        self.buf.extend_from_slice(b"%%EOF\n");
+        self.buf
+    }
+}
+
+fn encode_cp1252_char(c: char) -> Option<u8> {
+    let u = c as u32;
+    if let Ok(b) = u8::try_from(u) {
+        Some(b)
+    } else {
+        match c {
+            '€' => Some(128),
+            '‚' => Some(130),
+            'ƒ' => Some(131),
+            '„' => Some(132),
+            '…' => Some(133),
+            '†' => Some(134),
+            '‡' => Some(135),
+            'ˆ' => Some(136),
+            '‰' => Some(137),
+            'Š' => Some(138),
+            '‹' => Some(139),
+            'Œ' => Some(140),
+            'Ž' => Some(142),
+            '‘' => Some(145),
+            '’' => Some(146),
+            '“' => Some(147),
+            '”' => Some(148),
+            '•' => Some(149),
+            '–' => Some(150),
+            '—' => Some(151),
+            '˜' => Some(152),
+            '™' => Some(153),
+            'š' => Some(154),
+            '›' => Some(155),
+            'œ' => Some(156),
+            'ž' => Some(158),
+            'Ÿ' => Some(159),
+            _ => None,
+        }
+    }
+}
+
+fn escape_pdf_string(s: &str) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    for c in s.chars() {
+        let b = encode_cp1252_char(c).unwrap_or(b'?');
+        match b {
+            b'(' => bytes.extend_from_slice(b"\\("),
+            b')' => bytes.extend_from_slice(b"\\)"),
+            b'\\' => bytes.extend_from_slice(b"\\\\"),
+            _ => bytes.push(b),
+        }
+    }
+    bytes
+}
+
+/// Generates a PDF document from plain text.
+#[must_use]
+pub fn generate_pdf(text: &str) -> Vec<u8> {
+    // 1. Line wrapping (max 80 chars per line)
+    let mut lines = Vec::new();
+    let paragraphs: Vec<&str> = text.split("\n\n").collect();
+    for (i, &para) in paragraphs.iter().enumerate() {
+        if i > 0 {
+            lines.push(String::new()); // blank line
+        }
+        let words: Vec<&str> = para.split_whitespace().collect();
+        let mut current_line = String::new();
+        for &word in &words {
+            if current_line.is_empty() {
+                current_line.push_str(word);
+            } else if current_line.len() + 1 + word.len() <= 80 {
+                current_line.push(' ');
+                current_line.push_str(word);
+            } else {
+                lines.push(current_line);
+                current_line = word.to_string();
+            }
+        }
+        if !current_line.is_empty() {
+            lines.push(current_line);
+        }
+    }
+
+    // 2. Paginate (58 lines per page)
+    let mut pages = Vec::new();
+    let mut current_page = Vec::new();
+    for line in lines {
+        if current_page.len() >= 58 {
+            pages.push(current_page);
+            current_page = Vec::new();
+        }
+        // Avoid starting a page with an empty line
+        if current_page.is_empty() && line.is_empty() {
+            continue;
+        }
+        current_page.push(line);
+    }
+    if !current_page.is_empty() {
+        pages.push(current_page);
+    }
+    if pages.is_empty() {
+        pages.push(Vec::new());
+    }
+
+    let num_pages = pages.len();
+    let mut pdf = PdfWriter::new();
+
+    // Catalog: Object 1
+    pdf.write_object(1, b"<< /Type /Catalog /Pages 2 0 R >>");
+
+    // Pages list: Object 2
+    let mut kids = String::new();
+    for i in 0..num_pages {
+        let _ = write!(kids, "{} 0 R ", 3 + 2 * i);
+    }
+    let pages_content = format!(
+        "<< /Type /Pages /Kids [{}] /Count {} >>",
+        kids.trim_end(),
+        num_pages
+    );
+    pdf.write_object(2, pages_content.as_bytes());
+
+    // Font: Object 3 + 2 * num_pages
+    let font_obj_id = 3 + 2 * num_pages;
+
+    // Pages & Content streams
+    for (i, page_lines) in pages.into_iter().enumerate() {
+        let page_obj_id = 3 + 2 * i;
+        let content_obj_id = 4 + 2 * i;
+
+        // Write Page object
+        let page_dict = format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents {content_obj_id} 0 R /Resources << /Font << /F1 {font_obj_id} 0 R >> >> >>"
+        );
+        pdf.write_object(page_obj_id, page_dict.as_bytes());
+
+        // Construct content stream (10pt font, 12.5pt leading, start at y=780)
+        let mut stream_content = Vec::new();
+        stream_content.extend_from_slice(b"BT\n/F1 10 Tf\n12.5 TL\n50 780 Td\n");
+        for line in page_lines {
+            let escaped = escape_pdf_string(&line);
+            stream_content.extend_from_slice(b"(");
+            stream_content.extend_from_slice(&escaped);
+            stream_content.extend_from_slice(b") Tj T*\n");
+        }
+        stream_content.extend_from_slice(b"ET\n");
+
+        let mut content_obj = format!("<< /Length {} >>\nstream\n", stream_content.len()).into_bytes();
+        content_obj.extend_from_slice(&stream_content);
+        content_obj.extend_from_slice(b"\nendstream");
+        pdf.write_object(content_obj_id, &content_obj);
+    }
+
+    // Write Font object
+    pdf.write_object(
+        font_obj_id,
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+    );
+
+    pdf.finish()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -366,5 +573,47 @@ mod tests {
 
         let generated_str = String::from_utf8(output).unwrap();
         assert_eq!(generated_str.len(), 50);
+    }
+
+    #[test]
+    fn test_encode_cp1252() {
+        assert_eq!(encode_cp1252_char('a'), Some(b'a'));
+        assert_eq!(encode_cp1252_char('é'), Some(233));
+        assert_eq!(encode_cp1252_char('ë'), Some(235));
+        assert_eq!(encode_cp1252_char('€'), Some(128));
+        assert_eq!(encode_cp1252_char('山'), None);
+    }
+
+    #[test]
+    fn test_escape_pdf_string() {
+        let escaped = escape_pdf_string("hallo (wereld) \\ test €");
+        let mut expected = b"hallo \\(wereld\\) \\\\ test ".to_vec();
+        expected.push(128);
+        assert_eq!(escaped, expected);
+    }
+
+    #[test]
+    fn test_pdf_generation_basic() {
+        let text = "Dit is een test van de PDF generator.\n\nHet heeft meerdere paragrafen.";
+        let pdf_data = generate_pdf(text);
+
+        assert!(pdf_data.starts_with(b"%PDF-1.4"));
+        assert!(pdf_data.ends_with(b"%%EOF\n"));
+
+        let pdf_str = String::from_utf8_lossy(&pdf_data);
+        assert!(pdf_str.contains("xref\n"));
+        assert!(pdf_str.contains("trailer\n"));
+        assert!(pdf_str.contains("startxref\n"));
+
+        let xref_index = pdf_str.find("xref\n").unwrap();
+        let trailer_index = pdf_str.find("trailer\n").unwrap();
+        let xref_lines: Vec<&str> = pdf_str[xref_index..trailer_index]
+            .lines()
+            .skip(2)
+            .collect();
+
+        for line in xref_lines {
+            assert_eq!(line.len(), 19);
+        }
     }
 }

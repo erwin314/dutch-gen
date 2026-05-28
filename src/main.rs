@@ -23,6 +23,8 @@ fn print_help() {
     );
     println!("  -i, --infinite                Generate text infinitely (streaming mode)");
     println!("  -s, --seed <u64>              Specify seed for reproducible output");
+    println!("  -p, --pdf                     Generate output in PDF format");
+    println!("  -o, --output <file>           Write output to a file instead of stdout");
     println!("  -h, --help                    Print this help menu");
 }
 
@@ -31,6 +33,8 @@ struct CliArgs {
     bytes: Option<RangeOrExact>,
     seed: Option<u64>,
     infinite: bool,
+    pdf: bool,
+    output: Option<String>,
 }
 
 fn parse_args() -> CliArgs {
@@ -39,6 +43,8 @@ fn parse_args() -> CliArgs {
     let mut cli_bytes = None;
     let mut cli_seed = None;
     let mut cli_infinite = false;
+    let mut cli_pdf = false;
+    let mut cli_output = None;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -90,6 +96,17 @@ fn parse_args() -> CliArgs {
             "-i" | "--infinite" => {
                 cli_infinite = true;
             }
+            "-p" | "--pdf" => {
+                cli_pdf = true;
+            }
+            "-o" | "--output" => {
+                if let Some(val_str) = args.next() {
+                    cli_output = Some(val_str);
+                } else {
+                    eprintln!("Error: Missing value for {arg}");
+                    std::process::exit(1);
+                }
+            }
             _ => {
                 eprintln!("Error: Unknown argument: {arg}");
                 print_help();
@@ -106,12 +123,18 @@ fn parse_args() -> CliArgs {
         eprintln!("Error: --infinite parameter is mutually exclusive with --words and --bytes.");
         std::process::exit(1);
     }
+    if cli_pdf && cli_infinite {
+        eprintln!("Error: --pdf parameter is mutually exclusive with --infinite.");
+        std::process::exit(1);
+    }
 
     CliArgs {
         words: cli_words,
         bytes: cli_bytes,
         seed: cli_seed,
         infinite: cli_infinite,
+        pdf: cli_pdf,
+        output: cli_output,
     }
 }
 
@@ -149,12 +172,45 @@ fn main() {
         cdf.push(sum);
     }
 
-    // 5. Generate output based on parameters
-    let stdout = std::io::stdout();
-    let mut writer = std::io::BufWriter::new(stdout.lock());
+    // 5. Setup output writer (file or stdout)
+    let mut writer: Box<dyn Write> = match &cli_args.output {
+        Some(path) => {
+            let file = std::fs::File::create(path).unwrap_or_else(|e| {
+                eprintln!("Error creating output file {path}: {e}");
+                std::process::exit(1);
+            });
+            Box::new(std::io::BufWriter::new(file))
+        }
+        None => Box::new(std::io::BufWriter::new(std::io::stdout().lock())),
+    };
 
+    // 6. Generate output based on parameters
     let res = if cli_args.infinite {
         generate_infinite(&mut rng, &words, &cdf, sum, &mut writer)
+    } else if cli_args.pdf {
+        let text_res = if let Some(bytes_range) = cli_args.bytes {
+            let mut buf = Vec::new();
+            let target_bytes = bytes_range.resolve(&mut rng);
+            generate_by_bytes(target_bytes, &mut rng, &words, &cdf, sum, &mut buf)
+                .map(|()| buf)
+        } else {
+            let mut buf = Vec::new();
+            let target_words = cli_args
+                .words
+                .unwrap_or(RangeOrExact::Exact(100))
+                .resolve(&mut rng);
+            generate_by_words(target_words, &mut rng, &words, &cdf, sum, &mut buf)
+                .map(|()| buf)
+        };
+
+        match text_res {
+            Ok(buf) => {
+                let text_str = String::from_utf8(buf).expect("Generated text is not valid UTF-8");
+                let pdf_bytes = dutch_gen::generate_pdf(&text_str);
+                writer.write_all(&pdf_bytes).and_then(|()| writer.flush())
+            }
+            Err(e) => Err(e),
+        }
     } else if let Some(bytes_range) = cli_args.bytes {
         let target_bytes = bytes_range.resolve(&mut rng);
         generate_by_bytes(target_bytes, &mut rng, &words, &cdf, sum, &mut writer)
