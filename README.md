@@ -14,6 +14,7 @@ A lightweight, self-contained CLI application to generate pseudo-Dutch text that
 Options:
   -w, --words <exact|min-max>   Generate text with exact words or range of words (e.g., 500 or 100-500)
   -b, --bytes <exact|min-max>   Generate text with exact bytes or range of bytes (e.g., 1000 or 500-1500)
+  -i, --infinite                Generate text infinitely (streaming mode)
   -s, --seed <u64>              Specify seed for reproducible output
   -h, --help                    Print this help menu
 ```
@@ -25,6 +26,9 @@ Options:
 
 # Generate between 500 and 1500 bytes reproducibly
 ./dutch-gen -b 500-1500 -s 42
+
+# Stream text infinitely, piping it to target utilities
+./dutch-gen -i | head -n 100
 ```
 
 ## Data Citation & License

@@ -63,6 +63,7 @@ fn print_help() {
     println!(
         "  -b, --bytes <exact|min-max>   Generate text with exact bytes or range of bytes (e.g., 1000 or 500-1500)"
     );
+    println!("  -i, --infinite                Generate text infinitely (streaming mode)");
     println!("  -s, --seed <u64>              Specify seed for reproducible output");
     println!("  -h, --help                    Print this help menu");
 }
@@ -71,6 +72,7 @@ struct CliArgs {
     words: Option<RangeOrExact>,
     bytes: Option<RangeOrExact>,
     seed: Option<u64>,
+    infinite: bool,
 }
 
 fn parse_args() -> CliArgs {
@@ -78,6 +80,7 @@ fn parse_args() -> CliArgs {
     let mut cli_words = None;
     let mut cli_bytes = None;
     let mut cli_seed = None;
+    let mut cli_infinite = false;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -126,6 +129,9 @@ fn parse_args() -> CliArgs {
                     std::process::exit(1);
                 }
             }
+            "-i" | "--infinite" => {
+                cli_infinite = true;
+            }
             _ => {
                 eprintln!("Error: Unknown argument: {arg}");
                 print_help();
@@ -138,11 +144,16 @@ fn parse_args() -> CliArgs {
         eprintln!("Error: --words and --bytes parameters are mutually exclusive.");
         std::process::exit(1);
     }
+    if cli_infinite && (cli_words.is_some() || cli_bytes.is_some()) {
+        eprintln!("Error: --infinite parameter is mutually exclusive with --words and --bytes.");
+        std::process::exit(1);
+    }
 
     CliArgs {
         words: cli_words,
         bytes: cli_bytes,
         seed: cli_seed,
+        infinite: cli_infinite,
     }
 }
 
@@ -303,6 +314,76 @@ fn generate_by_words(
     }
 }
 
+fn generate_infinite(
+    rng: &mut ChaCha8Rng,
+    words: &[&str],
+    cdf: &[u64],
+    sum: u64,
+    writer: &mut impl Write,
+) {
+    let mut first_paragraph = true;
+    loop {
+        let paragraph_sentences_count = rng.random_range(3..=8);
+        let mut sentences = Vec::new();
+
+        for _ in 0..paragraph_sentences_count {
+            let sentence_len = rng.random_range(5..=20);
+            let mut sentence_words = Vec::with_capacity(sentence_len);
+            for i in 0..sentence_len {
+                let mut word = sample_word(rng, words, cdf, sum).to_string();
+                if i == 0 {
+                    let mut chars = word.chars();
+                    word = match chars.next() {
+                        None => String::new(),
+                        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                    };
+                }
+                sentence_words.push(word);
+            }
+
+            let p = rng.random_range(0..100);
+            let punct = if p < 85 {
+                "."
+            } else if p < 95 {
+                "?"
+            } else {
+                "!"
+            };
+            let mut sentence_str = sentence_words.join(" ");
+            sentence_str.push_str(punct);
+            sentences.push(sentence_str);
+        }
+
+        if !sentences.is_empty() {
+            if first_paragraph {
+                first_paragraph = false;
+            } else {
+                if let Err(e) = writer.write_all(b"\n\n") {
+                    if e.kind() == std::io::ErrorKind::BrokenPipe {
+                        break;
+                    }
+                    eprintln!("Error writing to stdout: {e}");
+                    std::process::exit(1);
+                }
+            }
+            if let Err(e) = writer.write_all(sentences.join(" ").as_bytes()) {
+                if e.kind() == std::io::ErrorKind::BrokenPipe {
+                    break;
+                }
+                eprintln!("Error writing to stdout: {e}");
+                std::process::exit(1);
+            }
+            if let Err(e) = writer.flush() {
+                if e.kind() == std::io::ErrorKind::BrokenPipe {
+                    break;
+                }
+                eprintln!("Error flushing stdout: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
 fn main() {
     let cli_args = parse_args();
 
@@ -341,17 +422,20 @@ fn main() {
     let stdout = std::io::stdout();
     let mut writer = std::io::BufWriter::new(stdout.lock());
 
-    if let Some(bytes_range) = cli_args.bytes {
+    if cli_args.infinite {
+        generate_infinite(&mut rng, &words, &cdf, sum, &mut writer);
+    } else if let Some(bytes_range) = cli_args.bytes {
         let target_bytes = bytes_range.resolve(&mut rng);
         generate_by_bytes(target_bytes, &mut rng, &words, &cdf, sum, &mut writer);
+        writer.write_all(b"\n").expect("Failed to write to stdout");
+        writer.flush().expect("Failed to flush stdout");
     } else {
         let target_words = cli_args
             .words
             .unwrap_or(RangeOrExact::Exact(100))
             .resolve(&mut rng);
         generate_by_words(target_words, &mut rng, &words, &cdf, sum, &mut writer);
+        writer.write_all(b"\n").expect("Failed to write to stdout");
+        writer.flush().expect("Failed to flush stdout");
     }
-
-    writer.write_all(b"\n").expect("Failed to write to stdout");
-    writer.flush().expect("Failed to flush stdout");
 }
